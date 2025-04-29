@@ -1,0 +1,98 @@
+import requests
+import json
+import time
+
+API_KEY = 'ваш_api_ключ'
+API_SECRET = 'ваш_api_секрет'
+BASE_URL = 'https://ataix.kz/api'
+
+HEADERS = {
+    'X-API-KEY': API_KEY,
+    'Content-Type': 'application/json'
+}
+
+def get_balance(currency='USDT'):
+    url = f"{BASE_URL}/user/balance/{currency}"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code == 200:
+        return response.json().get('available', 0)
+    elif response.status_code == 403:
+        print("Ошибка: Permission denied. Проверьте доступ API-ключа к данным.")
+        return None
+    else:
+        print(f"Ошибка при получении баланса: {response.status_code}")
+        return None
+
+def get_symbols():
+    url = f"{BASE_URL}/symbols"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Ошибка при получении списка торговых пар: {response.status_code}")
+        return []
+
+def get_order_book(symbol):
+    url = f"{BASE_URL}/order_book/{symbol}"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Ошибка при получении стакана ордеров: {response.status_code}")
+        return {}
+
+def create_order(symbol, price, amount):
+    url = f"{BASE_URL}/orders"
+    order_data = {
+        "symbol": symbol,
+        "side": "buy",
+        "type": "limit",
+        "price": str(price),
+        "amount": str(amount)
+    }
+    response = requests.post(url, headers=HEADERS, data=json.dumps(order_data))
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Ошибка при создании ордера: {response.status_code}")
+        return {}
+
+def main():
+    balance = get_balance()
+    if balance is None:
+        return
+
+    symbols = get_symbols()
+    suitable_symbols = [s for s in symbols if s['quote_currency'] == 'USDT' and float(s['min_order_amount']) <= 0.6]
+
+    if not suitable_symbols:
+        print("Нет подходящих торговых пар.")
+        return
+
+    symbol = suitable_symbols[0]['symbol']
+    order_book = get_order_book(symbol)
+    if not order_book or 'bids' not in order_book or not order_book['bids']:
+        print("Стакан ордеров пуст.")
+        return
+
+    highest_bid = float(order_book['bids'][0][0])
+    prices = [round(highest_bid * (1 - pct/100), 2) for pct in [2, 5, 8]]
+    amount = 1  # количество для покупки
+
+    orders = []
+    for price in prices:
+        order = create_order(symbol, price, amount)
+        if order:
+            orders.append({
+                'order_id': order.get('id'),
+                'status': 'NEW'
+            })
+        time.sleep(1)  # задержка между запросами
+
+    with open('orders.json', 'w') as f:
+        json.dump(orders, f, indent=4)
+
+    print("Ордера успешно созданы и сохранены в orders.json.")
+
+if __name__ == "__main__":
+    main()
